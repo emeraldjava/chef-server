@@ -490,22 +490,26 @@ minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
                 [{<<"frozen?">>, Frozen},
                  {<<"metadata">>, Metadata}]).
 
-%% @doc Add S3 download URLs for all files in the cookbook
+%% Annotate a set of segments with URLs, for v0 cookbook requests
+annotate_segments_with_urls(Ejson, OrgId, ExternalUrl) ->
+    lists:foldl(fun(Segment, CB) ->
+                        case ej:get({Segment}, CB) of
+                            undefined -> CB;
+                            Data ->
+                                WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
+                                ej:set({Segment}, CB, WithUrls)
+                        end
+                end,
+                Ejson,
+                ?COOKBOOK_SEGMENTS).
+
+%% @doc Add download URLs for all files in the cookbook
 %% Expects the whole cookbook JSON
 -spec annotate_with_urls(ejson_term(), object_id(), string()) -> ejson_term().
 annotate_with_urls(Ejson, OrgId, ExternalUrl) ->
     case ej:get({<<"all_files">>}, Ejson) of
         undefined ->
-            lists:foldl(fun(Segment, CB) ->
-                                case ej:get({Segment}, CB) of
-                                    undefined -> CB;
-                                    Data ->
-                                        WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
-                                        ej:set({Segment}, CB, WithUrls)
-                                end
-                        end,
-                        Ejson,
-                        ?COOKBOOK_SEGMENTS);
+            annotate_segments_with_urls(Ejson, OrgId, ExternalUrl);
         Data ->
             WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
             ej:set({<<"all_files">>}, Ejson, WithUrls)
@@ -629,15 +633,20 @@ list_query(_ObjectRec) ->
 bulk_get_query(_ObjectRec) ->
     error(not_implemented).
 
+%% for v2 metadata, the "segment" is encoded in to the name of file
+%% so for data that is v0 on disk we have to prepend the segment to the name
+add_segment_to_filename(Segment, File) ->
+    Fn = ej:get({<<"name">>}, File),
+    Fn1 = iolist_to_binary([Segment, "/", Fn]),
+    ej:set({<<"name">>}, File, Fn1).
+
 populate_all_files(Segment, Data, Metadata) ->
     lists:foldl(fun(File, CB) ->
                         File1 = case Segment of
                                     <<"root_files">> ->
                                         File;
                                     _ ->
-                                        Fn = ej:get({<<"name">>}, File),
-                                        Fn1 = iolist_to_binary([Segment, "/", Fn]),
-                                        ej:set({<<"name">>}, File, Fn1)
+                                        add_segment_to_filename(Segment, File)
                                 end,
                         ej:set_p({<<"all_files">>, new}, CB, File1)
                 end,
