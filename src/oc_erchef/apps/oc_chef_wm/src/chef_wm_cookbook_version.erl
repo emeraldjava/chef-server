@@ -120,8 +120,12 @@ fetch_cookbook_version(DbContext, OrgId, Name, latest) ->
 fetch_cookbook_version(DbContext, OrgId, Name, Version) ->
   chef_db:fetch_cookbook_version(DbContext, OrgId, {Name, Version}).
 
+to_json(Req, #base_state{server_api_version = Version,
+                         resource_state=#cookbook_state{chef_cookbook_version=CBV}}=State) when Version =:= ?API_v0 orelse Version =:= ?API_v1 ->
+    CompleteEJson = chef_cookbook_version:assemble_cookbook_ejson(CBV, chef_wm_util:base_uri(Req), false),
+    {chef_json:encode(CompleteEJson), Req, State};
 to_json(Req, #base_state{resource_state=#cookbook_state{chef_cookbook_version=CBV}}=State) ->
-    CompleteEJson = chef_cookbook_version:assemble_cookbook_ejson(CBV, chef_wm_util:base_uri(Req)),
+    CompleteEJson = chef_cookbook_version:assemble_cookbook_ejson(CBV, chef_wm_util:base_uri(Req), true),
     {chef_json:encode(CompleteEJson), Req, State}.
 
 from_json(Req, #base_state{resource_state = CookbookState} = State) ->

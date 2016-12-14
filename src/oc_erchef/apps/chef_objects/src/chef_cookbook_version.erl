@@ -27,7 +27,8 @@
 
 -export([
          assemble_cookbook_ejson/2,
-         annotate_with_s3_urls/3,
+         assemble_cookbook_ejson/3,
+         annotate_with_urls/3,
          authz_id/1,
          base_cookbook_name/1,
          constraint_map_spec/1,
@@ -271,6 +272,31 @@ cookbook_spec(CBName, CBVersion) ->
       {{opt, <<"version">>}, CBVersion}
      ]}.
 
+% cookbook_spec_v2(CBName, CBVersion) ->
+%     {[
+%       {<<"name">>, <<CBName/binary, "-", CBVersion/binary>>},
+%       {<<"cookbook_name">>, CBName},
+%       {<<"json_class">>, <<"Chef::CookbookVersion">>},
+%       {<<"chef_type">>, <<"cookbook_version">>},
+%       {<<"metadata">>, {[
+%                         {<<"version">>, CBVersion},
+%                         {{opt, <<"name">>}, {string_match, chef_regex:regex_for(cookbook_name)}},
+%                         {{opt, <<"description">>}, string},
+%                         {{opt, <<"long_description">>}, string},
+%                         {{opt, <<"maintainer">>}, string},
+%                         %% do we want to regex on email address or at least verify that we
+%                         %% have a '@'?
+%                         {{opt, <<"maintainer_email">>}, string},
+%                         {{opt, <<"license">>}, string},
+
+                        % {{opt, <<"platforms">>}, constraint_map_spec(cookbook_name)},
+
+                        % {{opt, <<"dependencies">>}, constraint_map_spec(cookbook_name)}
+                       % ]}},
+      % {{opt, <<"all_files">>}, file_list_spec()},
+      % {{opt, <<"version">>}, CBVersion}
+     % ]}.
+
 file_list_spec() ->
     {array_map, {[{<<"name">>, string},
                   {<<"path">>, string},
@@ -398,7 +424,7 @@ version_to_binary({Major, Minor, Patch}) ->
 %%
 %% The Ejson structure is a 1-1 mapping from the #chef_cookbook_version{} and does
 %% not contain any extra information, e.g. S3 URLs.
--spec assemble_cookbook_ejson(#chef_cookbook_version{}, string()) -> ejson_term().
+-spec assemble_cookbook_ejson(#chef_cookbook_version{}, string(), boolean()) -> ejson_term().
 assemble_cookbook_ejson(#chef_cookbook_version{
                            org_id = OrgId,
                            frozen=Frozen,
@@ -406,7 +432,7 @@ assemble_cookbook_ejson(#chef_cookbook_version{
                            metadata=XMetadataJSON,
                            meta_attributes=XMetaAttributesJSON,
                            meta_long_desc=XLongDescription,
-                           meta_deps=DependenciesJSON}, ExternalUrl) ->
+                           meta_deps=DependenciesJSON}, ExternalUrl, AllFiles) ->
     %% The serialized_object is everything but the metadata, and metadata in turn is all the
     %% metadata except the attributes, long description, and dependencies.  All need to be
     %% merged back together.
@@ -422,7 +448,12 @@ assemble_cookbook_ejson(#chef_cookbook_version{
                            [{<<"attributes">>, XMetaAttributesJSON},
                             {<<"dependencies">>, DependenciesJSON},
                             {<<"long_description">>, XLongDescription}]),
-    CookbookJSON = annotate_with_s3_urls(inflate(<<"cookbook">>, XCookbookJSON), OrgId, ExternalUrl),
+    CBJson = inflate(<<"cookbook">>, XCookbookJSON),
+    CBJson1 = case AllFiles of
+                 true -> ensure_v2_metadata(CBJson);
+                 false -> ensure_v0_metadata(CBJson)
+             end,
+    CookbookJSON = annotate_with_urls(CBJson1, OrgId, ExternalUrl),
 
     %% Now that the metadata is assembled, piece the final cookbook together
     lists:foldl(fun({Key, Data}, CB) ->
@@ -431,6 +462,9 @@ assemble_cookbook_ejson(#chef_cookbook_version{
                 CookbookJSON,
                 [{<<"frozen?">>, Frozen},
                  {<<"metadata">>, Metadata}]).
+
+assemble_cookbook_ejson(CB, ExternalUrl) ->
+    assemble_cookbook_ejson(CB, ExternalUrl, false).
 
 -spec minimal_cookbook_ejson(#chef_cookbook_version{}, string()) -> ejson_term().
 minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
@@ -447,7 +481,7 @@ minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
     Metadata = ej:set({<<"dependencies">>}, Metadata0,
                       inflate(<<"dependencies">>, DependenciesJSON)),
 
-    CookbookJSON = annotate_with_s3_urls(inflate(<<"cookbook">>, XCookbookJSON), OrgId, ExternalUrl),
+    CookbookJSON = annotate_with_urls(inflate(<<"cookbook">>, XCookbookJSON), OrgId, ExternalUrl),
 
     lists:foldl(fun({Key, Data}, CB) ->
                         ej:set({Key}, CB, Data)
@@ -458,18 +492,24 @@ minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
 
 %% @doc Add S3 download URLs for all files in the cookbook
 %% Expects the whole cookbook JSON
--spec annotate_with_s3_urls(ejson_term(), object_id(), string()) -> ejson_term().
-annotate_with_s3_urls(Ejson, OrgId, ExternalUrl) ->
-    lists:foldl(fun(Segment, CB) ->
-                    case ej:get({Segment}, CB) of
-                        undefined -> CB;
-                        Data ->
-                            WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
-                            ej:set({Segment}, CB, WithUrls)
-                    end
-                end,
-                Ejson,
-                ?COOKBOOK_SEGMENTS).
+-spec annotate_with_urls(ejson_term(), object_id(), string()) -> ejson_term().
+annotate_with_urls(Ejson, OrgId, ExternalUrl) ->
+    case ej:get({<<"all_files">>}, Ejson) of
+        undefined ->
+            lists:foldl(fun(Segment, CB) ->
+                                case ej:get({Segment}, CB) of
+                                    undefined -> CB;
+                                    Data ->
+                                        WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
+                                        ej:set({Segment}, CB, WithUrls)
+                                end
+                        end,
+                        Ejson,
+                        ?COOKBOOK_SEGMENTS);
+        Data ->
+            WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
+            ej:set({<<"all_files">>}, Ejson, WithUrls)
+    end.
 
 %% @doc Return a sorted list of cookbook-qualified names, given a cookbook name and its
 %% compressed 'serialized object' representation.
@@ -588,6 +628,40 @@ list_query(_ObjectRec) ->
 
 bulk_get_query(_ObjectRec) ->
     error(not_implemented).
+
+populate_all_files(Segment, Data, Metadata) ->
+    lists:foldl(fun(File, CB) ->
+                        File1 = case Segment of
+                                    <<"root_files">> ->
+                                        File;
+                                    _ ->
+                                        Fn = ej:get({<<"name">>}, File),
+                                        Fn1 = iolist_to_binary([Segment, "/", Fn]),
+                                        ej:set({<<"name">>}, File, Fn1)
+                                end,
+                        ej:set_p({<<"all_files">>, new}, CB, File1)
+                end,
+                Metadata,
+                Data).
+
+ensure_v2_metadata(Ejson) ->
+    case ej:get({<<"all_files">>}, Ejson) of
+        undefined ->
+            Ejson1 = ej:set({<<"all_files">>}, Ejson, []),
+            lists:foldl(fun(Segment, CB) ->
+                                case ej:get({Segment}, CB) of
+                                    undefined -> CB;
+                                    Data ->
+                                        populate_all_files(Segment, Data, CB)
+                                end
+                        end,
+                        Ejson1,
+                        ?COOKBOOK_SEGMENTS);
+        _ -> Ejson
+    end.
+
+ensure_v0_metadata(Ejson) ->
+    Ejson.
 
 update_from_ejson(#chef_cookbook_version{server_api_version = ApiVersion,
                                          org_id = OrgId,
