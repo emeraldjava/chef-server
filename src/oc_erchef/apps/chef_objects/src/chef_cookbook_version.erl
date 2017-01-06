@@ -46,6 +46,7 @@
          org_id/1,
          new_record/4,
          parse_binary_json/2,
+         parse_binary_json/3,
          parse_version/1,
          qualified_recipe_names/2,
          record_fields/1,
@@ -89,7 +90,7 @@
         ]).
 
 -define(VALID_KEYS,
-        [<<"attributes">>, <<"chef_type">>, <<"cookbook_name">>,
+        [<<"all_files">>, <<"attributes">>, <<"chef_type">>, <<"cookbook_name">>,
          <<"definitions">>, <<"files">>, <<"frozen?">>, <<"json_class">>, <<"libraries">>,
          <<"metadata">>, <<"name">>, <<"providers">>, <<"recipes">>, <<"resources">>,
          <<"root_files">>, <<"templates">>, <<"version">>]).
@@ -187,15 +188,17 @@ compress_maybe(Data, Type) ->
 %% @doc Convert a binary JSON string representing a Chef Cookbook Version into an
 %% EJson-encoded Erlang data structure.
 %% @end
--spec parse_binary_json(binary(), {binary(), binary()}) -> { ok, ejson_term() }. % or throw
-parse_binary_json(Bin, {UrlName, UrlVersion}) ->
+-spec parse_binary_json(binary(), {binary(), binary()}, true | false) -> { ok, ejson_term() }. % or throw
+parse_binary_json(Bin, {UrlName, UrlVersion}, AllFiles) ->
     %% avoid parsing the cookbook JSON if name or version from URL is invalid
     valid_name(UrlName),
     valid_version(UrlVersion),
     Cookbook0 = chef_json:decode(Bin),
     Cookbook = set_default_values(Cookbook0),
-    validate_cookbook(Cookbook, {UrlName, UrlVersion}).
+    validate_cookbook(Cookbook, {UrlName, UrlVersion}, AllFiles).
 
+parse_binary_json(Bin, {UrlName, UrlVersion}) ->
+    parse_binary_json(Bin, {UrlName, UrlVersion}, false).
 
 %% TODO: merge set_default_values and validate_role?
 
@@ -207,10 +210,15 @@ set_default_values(Cookbook) ->
 
 -spec validate_cookbook(Cookbook :: ej:json_object(),
                         {UrlName :: binary(),
-                         UrlVersion :: binary()}) -> {ok, ej:json_object()}.
-validate_cookbook(Cookbook, {UrlName, UrlVersion}) ->
+                         UrlVersion :: binary()}, true | false) -> {ok, ej:json_object()}.
+validate_cookbook(Cookbook, {UrlName, UrlVersion}, AllFiles) ->
     %% WARNING: UrlName and UrlVersion are assumed to be valid
-    case chef_object_base:strictly_valid(cookbook_spec(UrlName, UrlVersion), ?VALID_KEYS, Cookbook) of
+    Spec = case AllFiles of
+               false ->cookbook_spec(UrlName, UrlVersion);
+               _ -> cookbook_spec_v2(UrlName, UrlVersion)
+           end,
+
+    case chef_object_base:strictly_valid(Spec, ?VALID_KEYS, Cookbook) of
         ok -> {ok, Cookbook};
         Bad -> throw(Bad)
     end.
@@ -272,30 +280,30 @@ cookbook_spec(CBName, CBVersion) ->
       {{opt, <<"version">>}, CBVersion}
      ]}.
 
-% cookbook_spec_v2(CBName, CBVersion) ->
-%     {[
-%       {<<"name">>, <<CBName/binary, "-", CBVersion/binary>>},
-%       {<<"cookbook_name">>, CBName},
-%       {<<"json_class">>, <<"Chef::CookbookVersion">>},
-%       {<<"chef_type">>, <<"cookbook_version">>},
-%       {<<"metadata">>, {[
-%                         {<<"version">>, CBVersion},
-%                         {{opt, <<"name">>}, {string_match, chef_regex:regex_for(cookbook_name)}},
-%                         {{opt, <<"description">>}, string},
-%                         {{opt, <<"long_description">>}, string},
-%                         {{opt, <<"maintainer">>}, string},
-%                         %% do we want to regex on email address or at least verify that we
-%                         %% have a '@'?
-%                         {{opt, <<"maintainer_email">>}, string},
-%                         {{opt, <<"license">>}, string},
+cookbook_spec_v2(CBName, CBVersion) ->
+    {[
+      {<<"name">>, <<CBName/binary, "-", CBVersion/binary>>},
+      {<<"cookbook_name">>, CBName},
+      {<<"json_class">>, <<"Chef::CookbookVersion">>},
+      {<<"chef_type">>, <<"cookbook_version">>},
+      {<<"metadata">>, {[
+                        {<<"version">>, CBVersion},
+                        {{opt, <<"name">>}, {string_match, chef_regex:regex_for(cookbook_name)}},
+                        {{opt, <<"description">>}, string},
+                        {{opt, <<"long_description">>}, string},
+                        {{opt, <<"maintainer">>}, string},
+                        %% do we want to regex on email address or at least verify that we
+                        %% have a '@'?
+                        {{opt, <<"maintainer_email">>}, string},
+                        {{opt, <<"license">>}, string},
 
-                        % {{opt, <<"platforms">>}, constraint_map_spec(cookbook_name)},
+                        {{opt, <<"platforms">>}, constraint_map_spec(cookbook_name)},
 
-                        % {{opt, <<"dependencies">>}, constraint_map_spec(cookbook_name)}
-                       % ]}},
-      % {{opt, <<"all_files">>}, file_list_spec()},
-      % {{opt, <<"version">>}, CBVersion}
-     % ]}.
+                        {{opt, <<"dependencies">>}, constraint_map_spec(cookbook_name)}
+                       ]}},
+      {{opt, <<"all_files">>}, file_list_spec()},
+      {{opt, <<"version">>}, CBVersion}
+     ]}.
 
 file_list_spec() ->
     {array_map, {[{<<"name">>, string},
@@ -653,6 +661,9 @@ populate_all_files(Segment, Data, Metadata) ->
                 Metadata,
                 Data).
 
+populate_segments(_, Metadata) ->
+    Metadata.
+
 ensure_v2_metadata(Ejson) ->
     case ej:get({<<"all_files">>}, Ejson) of
         undefined ->
@@ -661,16 +672,23 @@ ensure_v2_metadata(Ejson) ->
                                 case ej:get({Segment}, CB) of
                                     undefined -> CB;
                                     Data ->
-                                        populate_all_files(Segment, Data, CB)
+                                        CB1 = populate_all_files(Segment, Data, CB),
+                                        ej:delete({Segment}, CB1)
                                 end
                         end,
                         Ejson1,
                         ?COOKBOOK_SEGMENTS);
-        _ -> Ejson
+        _ ->
+            Ejson
     end.
 
 ensure_v0_metadata(Ejson) ->
-    Ejson.
+    case ej:get({<<"all_files">>}, Ejson) of
+        undefined -> Ejson;
+        Data ->
+            Ejson1 = populate_segments(Data, Ejson),
+            ej:delete({<<"all_files">>}, Ejson1)
+    end.
 
 update_from_ejson(#chef_cookbook_version{server_api_version = ApiVersion,
                                          org_id = OrgId,
