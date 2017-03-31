@@ -342,11 +342,11 @@ module Pedant
         {
           "name" => "#{name}-#{version}",
           "cookbook_name" => name,
-            "version" => version,
-            "json_class" => "Chef::CookbookVersion",
-            "chef_type" => "cookbook_version",
-            "recipes" => opts[:recipes] || [],
-            "metadata" => {
+          "version" => version,
+          "json_class" => "Chef::CookbookVersion",
+          "chef_type" => "cookbook_version",
+          "recipes" => opts[:recipes] || [],
+          "metadata" => {
             "name" => name,
             "description" => opts[:description] || default_description,
             "long_description" => opts[:long_description] || default_long_description,
