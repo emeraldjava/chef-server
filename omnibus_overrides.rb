@@ -5,6 +5,7 @@ override :chef, version: "v12.21.31"
 override :ohai, version: "v8.23.0"
 override :ruby, version: "2.4.3"
 override :rubygems, version: "2.6.13"
+override :'nodejs-binary', version: "9.2.0"
 # This SHA is the last commit before the 6.0 release
 override :'berkshelf-no-depselector', version: '6016ca10b2f46508b1b107264228668776f505d9'
 
