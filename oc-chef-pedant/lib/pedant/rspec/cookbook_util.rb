@@ -213,10 +213,12 @@ module Pedant
       end
 
       def new_cookbook_artifact_v2(name, identifier, opts = {})
-        recipes = opts[:recipes].map do |r|
-          r["name"] = "recipes/#{r["name"]}"
-          r
-        end if opts.key?(:recipes)
+        if opts.key?(:recipes)
+          recipes = opts[:recipes].map do |r|
+            r["name"] = "recipes/#{r["name"]}"
+            r
+          end
+        end
 
         all_files = recipes || []
 
@@ -248,7 +250,7 @@ module Pedant
       end
 
       def new_cookbook_artifact(name, identifier, opts = {})
-        if opts[:api_version] && opts[:api_version].to_i >= 2
+        if platform.server_api_version >= 2
           new_cookbook_artifact_v2(name, identifier, opts)
         else
           new_cookbook_artifact_v0(name, identifier, opts)
@@ -264,11 +266,11 @@ module Pedant
       def make_cookbook_artifact(requestor, name, identifier, opts = {})
         url = api_url("/#{cookbook_url_base}/#{name}/#{identifier}")
         payload = new_cookbook_artifact(name, identifier, opts)
-        res = put(url, requestor, payload: payload, api_version: opts[:api_version] || "2")
+        res = put(url, requestor, payload: payload)
         expect(res.code).to eq(201)
       end
 
-      def make_cookbook_artifact_with_recipes(cookbook_name, identifier, recipe_list, api_version: "2")
+      def make_cookbook_artifact_with_recipes(cookbook_name, identifier, recipe_list)
         recipe_specs = normalize_recipe_specs(recipe_list)
         content_list = recipe_specs.map { |r| r[:content] }
         files = content_list.map { |content| Pedant::Utility.new_temp_file(content) }
@@ -281,7 +283,6 @@ module Pedant
           recipes: recipes,
           meta_recipes: recipes.each_with_object({}) { |r,h| h["#{cookbook_name}::#{r["name"][0..-4]}"] = "" },
           providing: recipes.each_with_object({}) { |r,h| h["#{cookbook_name}::#{r["name"][0..-4]}"] = ">= 0.0.0" },
-          api_version: api_version,
         }
         make_cookbook_artifact(admin_user, cookbook_name, identifier, opts)
       end
@@ -292,11 +293,11 @@ module Pedant
       # and passed in as function arugments or automatically computed if a
       # block is provided.
       def verify_checksum_cleanup(segment_type, existing_checksums=nil, updated_checksums=nil, &block)
-        existing_checksums ||= checksums_for_segment_type(segment_type)
+        existing_checksums ||= checksums_for_type(segment_type)
 
         yield if block_given?
 
-        updated_checksums ||= checksums_for_segment_type(segment_type)
+        updated_checksums ||= checksums_for_type(segment_type)
 
         deletions = existing_checksums.keys - updated_checksums.keys
 
@@ -342,12 +343,12 @@ module Pedant
 
       def make_cookbook(requestor, name, version, opts={})
         payload = new_cookbook(name, version, opts)
-        upload_cookbook(requestor, name, version, payload, opts)
+        upload_cookbook(requestor, name, version, payload)
       end
 
-      def upload_cookbook(requestor, name, version, payload, api_version: "2")
+      def upload_cookbook(requestor, name, version, payload)
         put(api_url("/#{cookbook_url_base}/#{name}/#{version}"),
-            requestor, api_version: api_version, :payload => payload)
+            requestor, :payload => payload)
       end
 
       def new_cookbook_v0(name, version, opts = {})
@@ -391,9 +392,10 @@ module Pedant
             r
           end
         end
+
         if opts.key?(:payload)
           opts[:payload].each do |part, files|
-            all_files += files.map { |f| f["name"] = "#{part}/#{f["name"]}"; f}
+            all_files += files.map { |f| f["name"] = "#{part}/#{f["name"]}"; f }
           end
         end
 
@@ -423,7 +425,7 @@ module Pedant
       end
 
       def new_cookbook(name, version, opts = {})
-        if opts[:api_version] && opts[:api_version].to_i >= 2
+        if platform.server_api_version >= 2
           new_cookbook_v2(name, version, opts)
         else
           new_cookbook_v0(name, version, opts)
@@ -568,14 +570,33 @@ module Pedant
       #     "https://...",
       #   }
       #
-      def checksums_for_segment_type(segment_type, cb_version=cookbook_version, api_version: "2")
-        get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cb_version}"),
-          admin_user, api_version: api_version) do |response|
+
+      def checksums_for_type(type, cb_version = cookbook_version)
+        if platform.server_api_version >= 2
+          checksums_for_all_files(type, cb_version)
+        else
+          checksums_for_segment_type(type, cb_version)
+        end
+      end
+
+      def checksums_for_segment_type(segment_type, cb_version=cookbook_version)
+        get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cb_version}"), admin_user) do |response|
           segment_contents = parse(response)[segment_type.to_s] || []
           segment_contents.inject({}) do |return_hash, segment_member|
             return_hash[segment_member['checksum']] = segment_member['url']
             return_hash
           end
+        end
+      end
+
+      def checksums_for_all_files(type, cb_version = cookbook_version)
+        get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cb_version}"), admin_user) do |response|
+          files = parse(response)["all_files"] || []
+          files.select do |f|
+            seg, name = f["name"].split("/")
+            seg = "root_files" if name.nil?
+            seg == type
+          end.each_with_object({}) { |file, acc| acc[file["checksum"]] = file["url"] }
         end
       end
 
@@ -586,9 +607,9 @@ module Pedant
         # checked
         #   key:     key to change
         #   value:   value to use
-        def should_create(key, value, ignores_value = false, actual_value = nil, metadata = {}, api_version: "2")
+        def should_create(key, value, ignores_value = false, actual_value = nil, metadata = {})
           # create and update are identical; both use PUT
-          should_change(key, value, ignores_value, actual_value, true, metadata, api_version: api_version)
+          should_change(key, value, ignores_value, actual_value, true, metadata)
         end
 
         # This is used for testing updates with changes to the default
@@ -597,8 +618,8 @@ module Pedant
         # passed when the result is checked
         #   key:     key to change
         #   value:   value to use
-        def should_not_change(key, value, actual_value, api_version: "2")
-          should_change(key, value, true, actual_value, false, {}, api_version: api_version)
+        def should_not_change(key, value, actual_value)
+          should_change(key, value, true, actual_value, false, {})
         end
 
         # This is used for testing updates with changes to the default
@@ -611,17 +632,16 @@ module Pedant
         # should_not_change_data instead (possibly same for ignores_value as well)
         # create shouldn't ever be passed, use should_create instead
         def should_change(key, value, ignores_value = false, actual_value = nil,
-                          create = false, metadata = {}, api_version: "2")
+                          create = false, metadata = {})
           it "#{key} = #{value} returns 200", metadata do
-            payload = new_cookbook(cookbook_name, cookbook_version, api_version: api_version)
+            payload = new_cookbook(cookbook_name, cookbook_version)
             if (value == :delete)
               payload.delete(key)
             else
               payload[key] = value
             end
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                admin_user, api_version: api_version,
-                :payload => payload) do |response|
+                admin_user, :payload => payload) do |response|
                   if (ignores_value)
                     payload[key] = actual_value
                   end
@@ -633,8 +653,7 @@ module Pedant
                 end
 
                 # Verified change (or creation) happened
-                get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                    admin_user, api_version: api_version) do |response|
+                get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"), admin_user) do |response|
                   response.
                     should look_like({
                     :status => 200,
@@ -652,9 +671,9 @@ module Pedant
         #   value:   value to use
         #   error:   expected HTTP error code
         #   message: error message expected
-        def should_fail_to_create(key, value, error, message, api_version: "2")
+        def should_fail_to_create(key, value, error, message)
           # Create and update are identical; both use PUT
-          should_fail_to_change(key, value, error, message, false, true, api_version: api_version)
+          should_fail_to_change(key, value, error, message, false, true)
         end
 
         # This is used when the update operation is expected to fail; the
@@ -668,19 +687,18 @@ module Pedant
         # create and server_error shouldn't normally ever be passed, use
         # other functions instead
         def should_fail_to_change(key, value, error, message, server_error = false,
-                                  create = false, api_version: "2")
+                                  create = false)
           tags = []
           tags << :validation if error == 400
           it "#{key} = #{value} returns #{error}", *tags do
-            payload = new_cookbook(cookbook_name, cookbook_version, api_version: api_version)
+            payload = new_cookbook(cookbook_name, cookbook_version)
             if (value == :delete)
               payload.delete(key)
             else
               payload[key] = value
             end
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                admin_user, api_version: api_version,
-                :payload => payload) do |response|
+                admin_user, :payload => payload) do |response|
                   if (server_error)
                     response.should =~ /^HTTP\/1.1 500 Internal Server Error/
                   else
@@ -696,8 +714,7 @@ module Pedant
 
                 # Verified change (or creation) did not happen
                 if (create)
-                  get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                      admin_user, api_version: api_version) do |response|
+                  get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"), admin_user) do |response|
                         response.
                           should look_like({
                           :status => 404
@@ -705,7 +722,7 @@ module Pedant
                       end
                 else
                   get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                      admin_user, api_version: api_version) do |response|
+                      admin_user) do |response|
                         payload = new_cookbook(cookbook_name, cookbook_version)
                         response.
                           should look_like({
@@ -723,8 +740,8 @@ module Pedant
         #   key:     key to change
         #   value:   value to use
         #   tags:    tags to add to the test
-        def should_create_metadata(key, value, *tags, api_version: "2")
-          should_change_metadata(key, value, nil, 200, *tags, api_version: api_version)
+        def should_create_metadata(key, value, *tags)
+          should_change_metadata(key, value, nil, 200, *tags)
         end
 
         # This is used for testing updates with changes to the default
@@ -735,8 +752,8 @@ module Pedant
         #   value:     value to pass
         #   new_value: expected value for key
         #   tags: tags to add to the test
-        def should_not_change_metadata(key, value, new_value, *tags, api_version: "2")
-          should_change_metadata(key, value, new_value, 200, *tags, api_version: api_version)
+        def should_not_change_metadata(key, value, new_value, *tags)
+          should_change_metadata(key, value, new_value, 200, *tags)
         end
 
         # This is used for testing updates with changes to the default
@@ -746,10 +763,10 @@ module Pedant
         #   value:   value to use
         # new_value shouldn't normally ever be passed -- use
         # should_mot_change_metadata instead
-        def should_change_metadata(key, value, new_value = nil, _expected_status = 200, *tags, api_version: "2")
+        def should_change_metadata(key, value, new_value = nil, _expected_status = 200, *tags)
           it "#{key} = #{value} returns #{_expected_status}", *tags do
 
-            cookbook = new_cookbook(cookbook_name, cookbook_version, api_version: api_version)
+            cookbook = new_cookbook(cookbook_name, cookbook_version)
 
             put_payload = cookbook.dup
             put_metadata = put_payload["metadata"]
@@ -761,7 +778,6 @@ module Pedant
             put_payload["metadata"] = put_metadata
 
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"), admin_user,
-                api_version: api_version,
                 :payload => put_payload) do |response|
               # The PUT response returns the payload exactly as it was sent
               response.should look_like({:status => _expected_status, :body_exact => put_payload})
@@ -769,7 +785,7 @@ module Pedant
 
                 # Verified change (or creation) happened
                 get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"), admin_user,
-                    api_version: api_version) do |response|
+                   ) do |response|
                   get_response = cookbook.dup
                   if (new_value)
                     get_metadata = get_response["metadata"]
@@ -792,8 +808,8 @@ module Pedant
         #   value:   value to use
         #   error:   expected HTTP error code
         #   message: error message expected
-        def should_fail_to_create_metadata(key, value, error, message, api_version: "2")
-          should_fail_to_change_metadata(key, value, error, message, true, api_version: api_version)
+        def should_fail_to_create_metadata(key, value, error, message)
+          should_fail_to_change_metadata(key, value, error, message, true)
         end
 
         # This is used for testing updates with changes to the default
@@ -808,11 +824,11 @@ module Pedant
         # create and server_error shouldn't normally ever be passed, use
         # other functions instead
         def should_fail_to_change_metadata(key, value, error, message, create = false,
-                                           server_error = false, api_version: "2")
+                                           server_error = false)
           tags = []
           tags << :validation if error == 400
           it "#{key} = #{value} returns #{error}", *tags do
-            payload = new_cookbook(cookbook_name, cookbook_version, api_version: api_version)
+            payload = new_cookbook(cookbook_name, cookbook_version)
             metadata = payload["metadata"]
             if (value == :delete)
               metadata.delete(key)
@@ -821,8 +837,7 @@ module Pedant
             end
             payload["metadata"] = metadata
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                admin_user, api_version: api_version,
-                :payload => payload) do |response|
+                admin_user, :payload => payload) do |response|
                   if (server_error)
                     response.should =~ /^HTTP\/1.1 500 Internal Server Error/
                   else
@@ -839,7 +854,7 @@ module Pedant
                 # Verified change (or creation) did not happen
                 if (create)
                   get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                      admin_user, api_version: api_version) do |response|
+                      admin_user) do |response|
                         response.
                           should look_like({
                           :status => 404
@@ -847,7 +862,7 @@ module Pedant
                       end
                 else
                   get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
-                      admin_user, api_version: api_version) do |response|
+                      admin_user) do |response|
                         payload = new_cookbook(cookbook_name, cookbook_version)
                         response.
                           should look_like({
