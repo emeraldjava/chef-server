@@ -181,7 +181,6 @@ module Pedant
           "name" => "#{name}",
           "identifier" => identifier,
           "version" => opts[:version] || default_version, # version doesn't matter for cookbook_artifacts
-          "json_class" => "Chef::CookbookVersion",
           "chef_type" => "cookbook_version",
           "frozen?" => false,
           "recipes" => opts[:recipes] || [],
@@ -226,7 +225,6 @@ module Pedant
           "name" => "#{name}",
           "identifier" => identifier,
           "version" => opts[:version] || default_version, # version doesn't matter for cookbook_artifacts
-          "json_class" => "Chef::CookbookVersion",
           "chef_type" => "cookbook_version",
           "frozen?" => false,
           "all_files" => all_files,
@@ -343,7 +341,7 @@ module Pedant
 
       def make_cookbook(requestor, name, version, opts={})
         payload = new_cookbook(name, version, opts)
-        upload_cookbook(requestor, name, version, payload)
+        ensure_2xx(upload_cookbook(requestor, name, version, payload))
       end
 
       def upload_cookbook(requestor, name, version, payload)
