@@ -387,9 +387,10 @@ module Pedant
       def new_cookbook_v2(name, version, opts = {})
         all_files = []
         if opts.key?(:recipes)
-          all_files = opts[:recipes].map do |r|
-            r[:name] = "#{recipes}/#{r[:name]}"
-            r
+          all_files = opts[:recipes].each_with_object([]) do |r, acc|
+            af = r.dup
+            af["name"] = "recipes/#{r['name']}"
+            acc << af
           end
         end
 
@@ -438,10 +439,7 @@ module Pedant
       shared(:default_maintainer_email) { "youremail@example.com" }
       shared(:default_license) { "Apache v2.0" }
 
-      # We don't return all the metadata when fetching a cookbook via
-      # the API because it's not used by the client and wastes
-      # bandwidth
-      def retrieved_cookbook(name, version, opts = {})
+      def retrieved_cookbook_v0(name, version, opts = {})
         cookbook = {
           "name" => "#{name}-#{version}",
           "version" => version,
@@ -467,6 +465,53 @@ module Pedant
 
         cookbook["metadata"] = metadata
         cookbook
+      end
+
+      def retrieved_cookbook_v2(name, version, opts = {})
+        all_files = nil
+        if (recipes = opts.key?(:recipes)) && recipes.is_a?(Array)
+          all_files = recipes.map do |r|
+            r["name"] = "recipes/#{r["name"]}"
+            r
+          end
+        end
+
+        cookbook = {
+          "name" => "#{name}-#{version}",
+          "version" => version,
+          "cookbook_name" => name,
+          "json_class" => "Chef::CookbookVersion",
+          "chef_type" => "cookbook_version",
+          "frozen?" => opts[:frozen] || false,
+          "all_files" => all_files || opts[:recipes] || []
+        }
+
+        metadata = {
+          "attributes" => {},
+          "dependencies" => {},
+          "description" => opts[:description] || default_description,
+          "license" => opts[:license] || default_license,
+          "long_description" => opts[:long_description] || default_long_description,
+          "maintainer" => opts[:maintainer] || default_maintainer,
+          "maintainer_email" =>  opts[:maintainer_email] || default_maintainer_email,
+          "name" => name,
+          "recipes" => opts[:meta_recipes] || {},
+          "version" => version
+        }
+
+        cookbook["metadata"] = metadata
+        cookbook
+      end
+
+      # We don't return all the metadata when fetching a cookbook via
+      # the API because it's not used by the client and wastes
+      # bandwidth
+      def retrieved_cookbook(name, version, opts = {})
+        if platform.server_api_version >= 2
+          retrieved_cookbook_v2(name, version, opts)
+        else
+          retrieved_cookbook_v0(name, version, opts)
+        end
       end
 
       # Create a dummy recipe for a cookbook recipe manifest.  The
@@ -591,12 +636,20 @@ module Pedant
 
       def checksums_for_all_files(type, cb_version = cookbook_version)
         get(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cb_version}"), admin_user) do |response|
-          files = parse(response)["all_files"] || []
+          extract_segment(parse(response), type).each_with_object({}) { |file, acc| acc[file["checksum"]] = file["url"] }
+        end
+      end
+
+      def extract_segment(cbv, segment)
+        if platform.server_api_version >= 2
+          files = cbv["all_files"] || []
           files.select do |f|
             seg, name = f["name"].split("/")
             seg = "root_files" if name.nil?
-            seg == type
-          end.each_with_object({}) { |file, acc| acc[file["checksum"]] = file["url"] }
+            seg == segment.to_s
+          end
+        else
+          cbv[segment.to_s]
         end
       end
 

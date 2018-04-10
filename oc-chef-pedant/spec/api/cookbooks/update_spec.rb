@@ -229,12 +229,12 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
 
         it "adding invalid checksum should fail", :validation do
           payload = new_cookbook(cookbook_name, cookbook_version,
-          payload: {"files" => [{"name" => "name1", "path" => "files/path/name1",
-                               "checksum" => checksums[0],
-                               "specificity" => "default"},
-                               {"name" => "name2", "path" => "files/path/name2",
-                                "checksum" => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                                "specificity" => "default"}]})
+                                 payload: {"files" => [{"name" => "name1", "path" => "files/path/name1",
+                                                        "checksum" => checksums[0],
+                                                        "specificity" => "default"},
+                                                        {"name" => "name2", "path" => "files/path/name2",
+                                                         "checksum" => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                                         "specificity" => "default"}]})
 
           put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
               admin_user, :payload => payload) do |response|
@@ -348,11 +348,11 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
           verify_checksum_cleanup(segment_type.to_sym) do
 
             payload[segment_type] = [{"name" => "name1", "path" => "path/name1",
-                                 "checksum" => checksums[0],
-                                 "specificity" => "default"},
-                                 {"name" => "name2", "path" => "path/name2",
-                                  "checksum" => checksums[1],
-                                  "specificity" => "default"}]
+                                      "checksum" => checksums[0],
+                                      "specificity" => "default"},
+                                      {"name" => "name2", "path" => "path/name2",
+                                       "checksum" => checksums[1],
+                                       "specificity" => "default"}]
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
                 admin_user, :payload => payload) do |response|
               response.
@@ -378,12 +378,12 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
         it "changing all different checksums should succeed" do
           delete_cookbook(admin_user, cookbook_name, cookbook_version)
           payload = new_cookbook(cookbook_name, cookbook_version,
-          payload: {"files" => [{"name" => "name1", "path" => "path/name1",
-                               "checksum" => checksums[0],
-                               "specificity" => "default"},
-                               {"name" => "name2", "path" => "path/name2",
-                                "checksum" => checksums[1],
-                                "specificity" => "default"}]})
+                                 payload: {"files" => [{"name" => "name1", "path" => "path/name1",
+                                                        "checksum" => checksums[0],
+                                                        "specificity" => "default"},
+                                                        {"name" => "name2", "path" => "path/name2",
+                                                         "checksum" => checksums[1],
+                                                         "specificity" => "default"}]})
           upload_cookbook(admin_user, cookbook_name, cookbook_version, payload)
 
           # Verified initial cookbook
@@ -400,11 +400,11 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
           verify_checksum_cleanup(segment_type.to_sym) do
 
             payload[segment_type] = [{"name" => "name3", "path" => "path/name3",
-                                 "checksum" => checksums[2],
-                                 "specificity" => "default"},
-                                 {"name" => "name4", "path" => "path/name4",
-                                  "checksum" => checksums[3],
-                                  "specificity" => "default"}]
+                                      "checksum" => checksums[2],
+                                      "specificity" => "default"},
+                                      {"name" => "name4", "path" => "path/name4",
+                                       "checksum" => checksums[3],
+                                       "specificity" => "default"}]
             put(api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}"),
                 admin_user, :payload => payload) do |response|
               response.
@@ -612,8 +612,8 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
                    end
 
             payload2[type] = [{"name" => "name5", "path" => "path/name5",
-                                  "checksum" => checksums[3],
-                                  "specificity" => "default"}]
+                               "checksum" => checksums[3],
+                               "specificity" => "default"}]
             upload_cookbook(admin_user, cookbook_name, cookbook_version2, payload2)
 
             # Checksums unique to first iteration of cookbook version 2 should
