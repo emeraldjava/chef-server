@@ -89,8 +89,12 @@
          {<<"frozen?">>, false}
         ]).
 
+-define(VALID_KEYS_V2,
+        [<<"all_files">>, <<"chef_type">>, <<"cookbook_name">>, <<"frozen?">>,
+         <<"json_class">>, <<"metadata">>, <<"name">>, <<"version">>]).
+
 -define(VALID_KEYS,
-        [<<"all_files">>, <<"attributes">>, <<"chef_type">>, <<"cookbook_name">>,
+        [<<"attributes">>, <<"chef_type">>, <<"cookbook_name">>,
          <<"definitions">>, <<"files">>, <<"frozen?">>, <<"json_class">>, <<"libraries">>,
          <<"metadata">>, <<"name">>, <<"providers">>, <<"recipes">>, <<"resources">>,
          <<"root_files">>, <<"templates">>, <<"version">>]).
@@ -211,14 +215,17 @@ set_default_values(Cookbook) ->
 -spec validate_cookbook(Cookbook :: ej:json_object(),
                         {UrlName :: binary(),
                          UrlVersion :: binary()}, true | false) -> {ok, ej:json_object()}.
-validate_cookbook(Cookbook, {UrlName, UrlVersion}, AllFiles) ->
-    %% WARNING: UrlName and UrlVersion are assumed to be valid
-    Spec = case AllFiles of
-               false ->cookbook_spec(UrlName, UrlVersion);
-               _ -> cookbook_spec_v2(UrlName, UrlVersion)
-           end,
-
+validate_cookbook(Cookbook, {UrlName, UrlVersion}, AllFiles) when AllFiles =:= false ->
+    Spec = cookbook_spec(UrlName, UrlVersion),
     case chef_object_base:strictly_valid(Spec, ?VALID_KEYS, Cookbook) of
+        ok -> {ok, Cookbook};
+        Bad -> throw(Bad)
+    end;
+validate_cookbook(Cookbook, {UrlName, UrlVersion}, _) ->
+    %% WARNING: UrlName and UrlVersion are assumed to be valid
+    Spec = cookbook_spec_v2(UrlName, UrlVersion),
+
+    case chef_object_base:strictly_valid(Spec, ?VALID_KEYS_V2, Cookbook) of
         ok -> {ok, Cookbook};
         Bad -> throw(Bad)
     end.
@@ -324,10 +331,11 @@ file_list_spec() ->
 
 -spec extract_checksums(ejson_term()) -> [binary()].
 extract_checksums(CBJson) ->
+    Segments = [ <<"all_files">> | ?COOKBOOK_SEGMENTS ],
     Sums = [ begin
                  Segment = ej:get({SegName}, CBJson, []),
                  extract_checksums_from_segment(Segment)
-             end || SegName <- ?COOKBOOK_SEGMENTS ],
+             end || SegName <- Segments ],
     lists:usort(lists:append(Sums)).
 
 extract_checksums_from_segment(Segment) ->
@@ -577,11 +585,24 @@ extract_recipe_names(<<31, 139, _Rest/binary>>=XCookbookJSON) ->
     EJson = chef_db_compression:decompress_and_decode(XCookbookJSON),
 
     %% Pull out just the recipe segment of the serialized object
-    Manifest = ej:get({<<"recipes">>}, EJson),
+    Manifest = case ej:get({<<"all_files">>}, EJson) of
+                   undefined -> 
+                       ej:get({<<"recipes">>}, EJson);
+                   Data ->
+                       get_specific_segment(<<"recipes">>, Data)
+               end,
 
     %% Collect just the name of each recipe in the manifest.  Results are NOT sorted in the
     %% end.
     [ ej:get({<<"name">>}, Recipe) || Recipe <- Manifest].
+
+get_specific_segment(Segment, Data) ->
+    IsSegment = fun(Record) -> [Seg | _ ] = get_segment_from_record(Record), Seg == Segment end, 
+    lists:filter(IsSegment, Data).
+
+get_segment_from_record(Record) ->
+    Name = ej:get({<<"name">>}, Record),
+    binary:split(Name, [<<"/">>]). 
 
 %% @doc Return the s3_url_ttl from the application environment, if it is
 %% undefined return the default value set in ?DEFAULT_S3_URL_TTL
@@ -648,6 +669,11 @@ add_segment_to_filename(Segment, File) ->
     Fn1 = iolist_to_binary([Segment, "/", Fn]),
     ej:set({<<"name">>}, File, Fn1).
 
+remove_segment_from_filename(File) ->
+    [Segment | Name ] = get_segment_from_record(File),
+    Record = ej:set({<<"name">>}, File, Name),
+    { Segment, Record }.
+
 populate_all_files(Segment, Data, Metadata) ->
     lists:foldl(fun(File, CB) ->
                         File1 = case Segment of
@@ -661,8 +687,14 @@ populate_all_files(Segment, Data, Metadata) ->
                 Metadata,
                 Data).
 
-populate_segments(_, Metadata) ->
-    Metadata.
+populate_segments(Data, Metadata) ->
+    Md1 = [ ej:set({Segment}, Metadata, []) || Segment <- ?COOKBOOK_SEGMENTS ],
+    lists:foldl(fun(File, CB) ->
+                        { Segment, Record } = remove_segment_from_filename(File),
+                        ej:set_p({Segment, new}, CB, Record)
+                end,
+                Md1,
+                Data).
 
 ensure_v2_metadata(Ejson) ->
     case ej:get({<<"all_files">>}, Ejson) of
