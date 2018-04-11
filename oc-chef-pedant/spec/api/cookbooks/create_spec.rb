@@ -126,8 +126,13 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_create do
         end # context basic tests
 
         context "checking segments" do
-          %w{resources providers recipes definitions libraries attributes
-           files templates root_files}.each do |segment|
+          segments = if api_version >= 2
+                       %w{all_files}
+                     else
+                       %w{resources providers recipes definitions libraries attributes files templates root_files}
+                     end
+
+          segments.each do |segment|
 
             should_fail_to_create(segment, "foo", 400,
                                   "Field '#{segment}' invalid")
@@ -251,7 +256,8 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_create do
           end
           it "specifying file not in sandbox is a 400" do
             payload = new_cookbook(cookbook_name, cookbook_version)
-            payload["recipes"] = [
+            seg = platform.server_api_version >= 2 ? "all_files" : "recipes"
+            payload[seg] = [
               {
                 "name" => "default.rb",
                 "path" => "recipes/default.rb",
