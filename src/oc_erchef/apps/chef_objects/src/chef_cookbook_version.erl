@@ -693,16 +693,15 @@ populate_all_files(Segment, Data, Metadata) ->
 %% We have to transform that into segments (?COOKBOOK_SEGMENTS) containing a list of file parts for that segment
 %% { "recipes": [ { "name": "default.rb", path: "recipes/default.rb", … } ] }
 populate_segments(Data, Metadata) ->
-    % Md1 = lists:foldl(fun(Seg, CB) ->
-    %                           ej:set({Seg}, CB, [])
-    %                   end,
-    %                   Metadata,
-    %                   ?COOKBOOK_SEGMENTS),
     lists:foldl(fun(File, CB) ->
                         { Segment, Record } = remove_segment_from_filename(File),
-                        ej:set_p({Segment, new}, CB, Record)
+                        CB1 = case ej:get({Segment}, CB) of
+                                  undefined -> 
+                                      ej:set({Segment}, CB, []);
+                                  _ -> CB
+                              end,
+                        ej:set_p({Segment, new}, CB1, Record)
                 end,
-                % Md1,
                 Metadata,
                 Data).
 
