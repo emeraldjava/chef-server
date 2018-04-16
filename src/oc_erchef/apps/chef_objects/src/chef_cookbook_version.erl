@@ -586,7 +586,7 @@ extract_recipe_names(<<31, 139, _Rest/binary>>=XCookbookJSON) ->
 
     %% Pull out just the recipe segment of the serialized object
     Manifest = case ej:get({<<"all_files">>}, EJson) of
-                   undefined -> 
+                   undefined ->
                        ej:get({<<"recipes">>}, EJson);
                    Data ->
                        get_specific_segment(<<"recipes">>, Data)
@@ -597,12 +597,12 @@ extract_recipe_names(<<31, 139, _Rest/binary>>=XCookbookJSON) ->
     [ ej:get({<<"name">>}, Recipe) || Recipe <- Manifest].
 
 get_specific_segment(Segment, Data) ->
-    IsSegment = fun(Record) -> [Seg | _ ] = get_segment_from_record(Record), Seg == Segment end, 
+    IsSegment = fun(Record) -> [Seg | _ ] = get_segment_from_record(Record), Seg == Segment end,
     lists:filter(IsSegment, Data).
 
 get_segment_from_record(Record) ->
     Name = ej:get({<<"name">>}, Record),
-    binary:split(Name, [<<"/">>]). 
+    binary:split(Name, [<<"/">>]).
 
 %% @doc Return the s3_url_ttl from the application environment, if it is
 %% undefined return the default value set in ?DEFAULT_S3_URL_TTL
@@ -695,7 +695,7 @@ populate_segments(Data, Metadata) ->
     lists:foldl(fun(File, CB) ->
                         { Segment, Record } = remove_segment_from_filename(File),
                         CB1 = case ej:get({Segment}, CB) of
-                                  undefined -> 
+                                  undefined ->
                                       ej:set({Segment}, CB, []);
                                   _ -> CB
                               end,
