@@ -651,6 +651,14 @@ module Pedant
         end
       end
 
+      def select_segment(segment)
+        if platform.server_api_version >= 2
+          "all_files"
+        else
+          segment
+        end
+      end
+
       module ClassMethods
 
         # This is used for testing creates with changes to the default

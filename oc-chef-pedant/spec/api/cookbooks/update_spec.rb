@@ -41,11 +41,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
     end
 
     let(:segment_type) do
-      if api_version.to_i < 2
-        "files"
-      else
-        "all_files"
-      end
+      select_segment("files")
     end
 
     include Pedant::RSpec::CookbookUtil
@@ -430,7 +426,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
         it "changing some different checksums should succeed" do
           delete_cookbook(admin_user, cookbook_name, cookbook_version)
           payload = new_cookbook(cookbook_name, cookbook_version)
-          payload["files"] = [{"name" => "name1", "path" => "path/name1",
+          payload[segment_type] = [{"name" => "name1", "path" => "path/name1",
                                "checksum" => checksums[0],
                                "specificity" => "default"},
                                {"name" => "name2", "path" => "path/name2",
@@ -454,7 +450,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
 
           verify_checksum_cleanup(:files) do
 
-            payload["files"] = [{"name" => "name2", "path" => "path/name2",
+            payload[segment_type] = [{"name" => "name2", "path" => "path/name2",
                                  "checksum" => checksums[1],
                                  "specificity" => "default"},
                                  {"name" => "name3", "path" => "path/name3",
@@ -489,7 +485,11 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
           delete_cookbook(admin_user, cookbook_name, cookbook_version)
 
           payload = new_cookbook(cookbook_name, cookbook_version)
-          payload["files"] = [{"name" => "name1", "path" => "path/name1",
+
+          # Make changes to the files in cookbook version 2. This effectively
+          # deletes all the old files.
+
+          payload[segment_type] = [{"name" => "name1", "path" => "path/name1",
                                "checksum" => checksums[0],
                                "specificity" => "default"},
                                {"name" => "name2", "path" => "path/name2",
@@ -511,7 +511,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
             })
           end
 
-          payload["files"] = [{"name" => "name2", "path" => "path/name2",
+          payload[segment_type] = [{"name" => "name2", "path" => "path/name2",
                                "checksum" => checksums[1],
                                "specificity" => "default"},
                                {"name" => "name3", "path" => "path/name3",
@@ -534,7 +534,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
           end
 
           # verify change did not happen
-          payload["files"] = [{"name" => "name1", "path" => "path/name1",
+          payload[segment_type] = [{"name" => "name1", "path" => "path/name1",
                                "checksum" => checksums[0],
                                "specificity" => "default"},
                                {"name" => "name2", "path" => "path/name2",
@@ -605,13 +605,7 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_update do
 
             # Make changes to the files in cookbook version 2. This effectively
             # deletes all the old files.
-            type = if api_version.to_i < 2
-                     "files"
-                   else
-                     "all_files"
-                   end
-
-            payload2[type] = [{"name" => "name5", "path" => "path/name5",
+            payload2[segment_type] = [{"name" => "name5", "path" => "path/name5",
                                "checksum" => checksums[3],
                                "specificity" => "default"}]
             upload_cookbook(admin_user, cookbook_name, cookbook_version2, payload2)
