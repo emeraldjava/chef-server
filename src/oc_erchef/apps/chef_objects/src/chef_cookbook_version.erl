@@ -512,6 +512,7 @@ annotate_segments_with_urls(Ejson, OrgId, ExternalUrl) ->
                         case ej:get({Segment}, CB) of
                             undefined -> CB;
                             Data ->
+                                lager:warning("Annotating ~p", [CB]),
                                 WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
                                 ej:set({Segment}, CB, WithUrls)
                         end
@@ -671,7 +672,7 @@ add_segment_to_filename(Segment, File) ->
 
 remove_segment_from_filename(File) ->
     [Segment | Name ] = get_segment_from_record(File),
-    Record = ej:set({<<"name">>}, File, Name),
+    Record = ej:set({<<"name">>}, File, lists:last(Name)),
     { Segment, Record }.
 
 populate_all_files(Segment, Data, Metadata) ->
@@ -687,13 +688,22 @@ populate_all_files(Segment, Data, Metadata) ->
                 Metadata,
                 Data).
 
+%% A v2 cookbook version contains only the "all_files" key, which is a list of all the file parts
+%% { "all_files": [ { "name": "recipes/default.rb", "path": "recipes/default.rb", … } ] }
+%% We have to transform that into segments (?COOKBOOK_SEGMENTS) containing a list of file parts for that segment
+%% { "recipes": [ { "name": "default.rb", path: "recipes/default.rb", … } ] }
 populate_segments(Data, Metadata) ->
-    Md1 = [ ej:set({Segment}, Metadata, []) || Segment <- ?COOKBOOK_SEGMENTS ],
+    % Md1 = lists:foldl(fun(Seg, CB) ->
+    %                           ej:set({Seg}, CB, [])
+    %                   end,
+    %                   Metadata,
+    %                   ?COOKBOOK_SEGMENTS),
     lists:foldl(fun(File, CB) ->
                         { Segment, Record } = remove_segment_from_filename(File),
                         ej:set_p({Segment, new}, CB, Record)
                 end,
-                Md1,
+                % Md1,
+                Metadata,
                 Data).
 
 ensure_v2_metadata(Ejson) ->
