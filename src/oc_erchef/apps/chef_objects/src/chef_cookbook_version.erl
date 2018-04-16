@@ -512,7 +512,6 @@ annotate_segments_with_urls(Ejson, OrgId, ExternalUrl) ->
                         case ej:get({Segment}, CB) of
                             undefined -> CB;
                             Data ->
-                                lager:warning("Annotating ~p", [CB]),
                                 WithUrls = add_urls_for_segment(OrgId, Data, ExternalUrl),
                                 ej:set({Segment}, CB, WithUrls)
                         end
