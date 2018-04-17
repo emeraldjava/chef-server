@@ -263,7 +263,7 @@ is_forced(Req) ->
             true
     end.
 
--spec wants_all_files(binary) -> true | false.
+-spec wants_all_files('bad_value_requested' | integer()) -> boolean().
 wants_all_files(Version) when Version =:= ?API_v0 orelse Version =:= ?API_v1 ->
     false;
 wants_all_files(_) ->
