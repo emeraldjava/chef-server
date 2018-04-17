@@ -35,13 +35,15 @@
          single_cookbook_version_spec/0,
          valid_cookbook_constraint/1,
          ejson_for_indexing/2,
+         ensure_v0_metadata/1,
+         ensure_v2_metadata/1,
          extract_checksums/1,
          fields_for_update/1,
          fields_for_insert/1,
          fields_for_fetch/1,
          id/1,
          is_indexed/1,
-         minimal_cookbook_ejson/2,
+         minimal_cookbook_ejson/3,
          name/1,
          org_id/1,
          new_record/4,
@@ -56,6 +58,7 @@
          type_name/1,
          update_from_ejson/2,
          version_to_binary/1,
+         wants_all_files/1,
          list/2
         ]).
 
@@ -482,13 +485,14 @@ assemble_cookbook_ejson(#chef_cookbook_version{
 assemble_cookbook_ejson(CB, ExternalUrl) ->
     assemble_cookbook_ejson(CB, ExternalUrl, false).
 
--spec minimal_cookbook_ejson(#chef_cookbook_version{}, string()) -> ejson_term().
+-spec minimal_cookbook_ejson(#chef_cookbook_version{}, string(), integer()) -> ejson_term().
 minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
                                               frozen=Frozen,
                                               serialized_object=XCookbookJSON,
                                               metadata=XMetadataJSON,
                                               meta_deps=DependenciesJSON},
-                       ExternalUrl) ->
+                       ExternalUrl,
+                       ApiVersion) ->
     %% The serialized_object is everything but the metadata, and metadata in turn is all the
     %% metadata except the attributes and long description.  We do not add in the sub pieces
     %% of the metadata when merging
@@ -497,7 +501,13 @@ minimal_cookbook_ejson(#chef_cookbook_version{org_id = OrgId,
     Metadata = ej:set({<<"dependencies">>}, Metadata0,
                       inflate(<<"dependencies">>, DependenciesJSON)),
 
-    CookbookJSON = annotate_with_urls(inflate(<<"cookbook">>, XCookbookJSON), OrgId, ExternalUrl),
+    AllFiles = wants_all_files(ApiVersion),
+    CBJson = inflate(<<"cookbook">>, XCookbookJSON),
+    CBJson1 = case AllFiles of
+                 true -> ensure_v2_metadata(CBJson);
+                 false -> ensure_v0_metadata(CBJson)
+             end,
+    CookbookJSON = annotate_with_urls(CBJson1, OrgId, ExternalUrl),
 
     lists:foldl(fun({Key, Data}, CB) ->
                         ej:set({Key}, CB, Data)
@@ -811,3 +821,9 @@ list(#chef_cookbook_version{org_id = OrgId} = CBV, CallbackFun) ->
 
 set_api_version(ObjectRec, Version) ->
     ObjectRec#chef_cookbook_version{server_api_version = Version}.
+
+-spec wants_all_files('bad_value_requested' | integer()) -> boolean().
+wants_all_files(Version) when Version =:= 0 orelse Version =:= 1 ->
+    false;
+wants_all_files(_) ->
+    true.

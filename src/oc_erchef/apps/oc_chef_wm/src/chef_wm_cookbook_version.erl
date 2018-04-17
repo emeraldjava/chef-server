@@ -74,7 +74,7 @@ validate_request(Method, Req, #base_state{server_api_version = ApiVersion,
     CBState = case Method of
                 'PUT' ->
                   Body = wrq:req_body(Req),
-                  {ok, Cookbook} = chef_cookbook_version:parse_binary_json(Body, {UrlName, UrlVersion}, wants_all_files(ApiVersion)),
+                  {ok, Cookbook} = chef_cookbook_version:parse_binary_json(Body, {UrlName, UrlVersion}, chef_cookbook_version:wants_all_files(ApiVersion)),
                   CBState1#cookbook_state{cookbook_data = Cookbook};
                 _ ->
                   CBState1
@@ -123,7 +123,7 @@ fetch_cookbook_version(DbContext, OrgId, Name, Version) ->
 
 to_json(Req, #base_state{server_api_version = Version,
                          resource_state=#cookbook_state{chef_cookbook_version=CBV}}=State) ->
-    CompleteEJson = chef_cookbook_version:assemble_cookbook_ejson(CBV, chef_wm_util:base_uri(Req), wants_all_files(Version)),
+    CompleteEJson = chef_cookbook_version:assemble_cookbook_ejson(CBV, chef_wm_util:base_uri(Req), chef_cookbook_version:wants_all_files(Version)),
     {chef_json:encode(CompleteEJson), Req, State}.
 
 from_json(Req, #base_state{resource_state = CookbookState} = State) ->
@@ -262,12 +262,6 @@ is_forced(Req) ->
             %% any value other than "false" is true.
             true
     end.
-
--spec wants_all_files('bad_value_requested' | integer()) -> boolean().
-wants_all_files(Version) when Version =:= ?API_v0 orelse Version =:= ?API_v1 ->
-    false;
-wants_all_files(_) ->
-    true.
 
 -spec can_update(#wm_reqdata{}, #chef_cookbook_version{}) ->  true | false.
 can_update(Req, #chef_cookbook_version{frozen = Frozen}) ->

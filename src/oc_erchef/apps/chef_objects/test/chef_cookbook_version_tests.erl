@@ -225,7 +225,7 @@ assemble_cookbook_ejson_test_() ->
                                               AuthzId,
                                               CBEJson),
 
-              MinCb = chef_cookbook_version:minimal_cookbook_ejson(Record, VHostUrl),
+              MinCb = chef_cookbook_version:minimal_cookbook_ejson(Record, VHostUrl, 1),
               ?assertEqual(undefined, ej:get({"metadata", "attributes"}, MinCb)),
               ?assertEqual(undefined, ej:get({"metadata", "long_description"}, MinCb)),
               ?assertEqual({[{<<"ruby">>, []}]}, ej:get({"metadata", "dependencies"}, MinCb))
