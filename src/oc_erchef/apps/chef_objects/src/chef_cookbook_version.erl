@@ -718,7 +718,7 @@ populate_segments(Data, Metadata) ->
 
     lists:foldl(fun(File, CB) ->
                         { Segment, Record } = remove_segment_from_filename(File),
-                        ej:set_p({Segment, new}, CB1, Record)
+                        ej:set_p({Segment, new}, CB, Record)
                 end,
                 CB1,
                 Data).
