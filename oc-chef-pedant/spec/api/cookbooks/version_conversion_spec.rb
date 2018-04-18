@@ -49,14 +49,24 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_conversion do
     let(:request_url) { api_url("/#{cookbook_url_base}/#{cookbook_name}/#{cookbook_version}") }
     let(:cookbook_name) { "cookbook_name" }
     let(:cookbook_version) { self.class.cookbook_version }
-    let(:recipes) do
-      [{
-        "name" => "default.rb",
-        "path" => "recipes/default.rb",
-        "checksum" => checksums[0],
-        "specificity" => "default"
-      }]
+    let(:cookbook_payload) do
+      {
+        "recipes" => [{
+          "name" => "default.rb",
+          "path" => "recipes/default.rb",
+          "checksum" => checksums[0],
+          "specificity" => "default"
+        }],
+        "root_files" => [{
+          "name" => "metadata.rb",
+          "path" => "metadata.rb",
+          "checksum" => checksums[1],
+          "specificity" => "default",
+        }]
+      }
     end
+    let(:cb_v0) { new_cookbook_v0(cookbook_name, cookbook_version, payload: cookbook_payload) }
+    let(:cb_v2) { new_cookbook_v2(cookbook_name, cookbook_version, payload: cookbook_payload) }
 
     after do
       delete_cookbook(admin_user, cookbook_name, cookbook_version)
@@ -69,40 +79,36 @@ describe "Cookbooks API endpoint", :cookbooks, :cookbooks_conversion do
 
     it "uploads as v0, downloads as v2" do
       platform.server_api_version = 0
-      payload = new_cookbook(cookbook_name, cookbook_version, recipes: recipes)
-      put(request_url, admin_user, payload: payload) do |response|
+      put(request_url, admin_user, payload: cb_v0) do |response|
         response.should look_like({
           status: 201,
-          body: payload,
+          body: cb_v0,
         })
       end
 
       platform.server_api_version = 2
-      expected_payload = new_cookbook(cookbook_name, cookbook_version, recipes: recipes)
       get(request_url, admin_user) do |response|
         response.should look_like({
           status: 200,
-          body: expected_payload,
+          body: cb_v2,
         })
       end
     end
 
     it "uploads as v2, downloads as v0" do
       platform.server_api_version = 2
-      payload = new_cookbook(cookbook_name, cookbook_version, recipes: recipes)
-      put(request_url, admin_user, payload: payload) do |response|
+      put(request_url, admin_user, payload: cb_v2) do |response|
         response.should look_like({
           status: 201,
-          body: payload,
+          body: cb_v2,
         })
       end
 
       platform.server_api_version = 0
-      expected_payload = new_cookbook(cookbook_name, cookbook_version, recipes: recipes)
       get(request_url, admin_user) do |response|
         response.should look_like({
           status: 200,
-          body: expected_payload,
+          body: cb_v0,
         })
       end
     end

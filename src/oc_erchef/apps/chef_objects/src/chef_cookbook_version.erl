@@ -680,9 +680,17 @@ add_segment_to_filename(Segment, File) ->
     ej:set({<<"name">>}, File, Fn1).
 
 remove_segment_from_filename(File) ->
+    lager:warning("File is ~p", [File]),
     [Segment | Name ] = get_segment_from_record(File),
-    Record = ej:set({<<"name">>}, File, lists:last(Name)),
-    { Segment, Record }.
+    lager:warning("Segment is ~p, Name is ~p", [Segment, Name]),
+    case Name of
+        % if Name is nil, then we have a root file (like metadata.rb) - so we'll set the name to the segment, and the segment to <<"root_files">>
+        [] -> 
+            { <<"root_files">>, ej:set({<<"name">>}, File, Segment)};
+        _ ->
+            Record = ej:set({<<"name">>}, File, lists:last(Name)),
+            { Segment, Record }
+    end.
 
 populate_all_files(Segment, Data, Metadata) ->
     lists:foldl(fun(File, CB) ->

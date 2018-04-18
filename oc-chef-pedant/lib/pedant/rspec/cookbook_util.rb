@@ -375,8 +375,8 @@ module Pedant
         }
         if opts.key?(:payload)
           opts[:payload].each do |part, files|
-            cb[part] ||= []
-            cb[part] += files
+            cb[part.to_s] ||= []
+            cb[part.to_s] += files
           end
         end
         cb
@@ -394,7 +394,15 @@ module Pedant
 
         if opts.key?(:payload)
           opts[:payload].each do |part, files|
-            all_files += files.map { |f| f["name"] = "#{part}/#{f["name"]}"; f }
+            all_files += if part == "root_files"
+                           files
+                         else
+                           files.each_with_object([]) do |f, acc|
+                             file = f.dup
+                             file["name"] = "#{part}/#{file["name"]}"
+                             acc << file
+                           end
+                         end
           end
         end
 
