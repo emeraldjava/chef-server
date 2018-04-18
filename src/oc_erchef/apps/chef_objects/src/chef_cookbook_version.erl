@@ -685,7 +685,7 @@ remove_segment_from_filename(File) ->
     lager:warning("Segment is ~p, Name is ~p", [Segment, Name]),
     case Name of
         % if Name is nil, then we have a root file (like metadata.rb) - so we'll set the name to the segment, and the segment to <<"root_files">>
-        [] -> 
+        [] ->
             { <<"root_files">>, ej:set({<<"name">>}, File, Segment)};
         _ ->
             Record = ej:set({<<"name">>}, File, lists:last(Name)),
